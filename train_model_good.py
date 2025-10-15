@@ -63,3 +63,5 @@ for epoch in range(50):
 os.makedirs("artifacts", exist_ok=True)
 torch.save(model.state_dict(), "artifacts/model.pth")
 print("✅ Model training complete — saved in artifacts/")
+
+#test
