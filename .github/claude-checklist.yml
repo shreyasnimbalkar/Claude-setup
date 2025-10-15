@@ -1,0 +1,44 @@
+checklist:
+  - name: "Data leakage check"
+    description: "Ensure there is no data leakage between training and test sets (for example, using test data in training or fitting scalers before splitting)."
+    severity: "high"
+
+  - name: "Random seed reproducibility"
+    description: "Verify random seeds are set for libraries like NumPy, random, PyTorch, or TensorFlow to make experiments reproducible."
+    pattern: "(torch\\.manual_seed|np\\.random\\.seed|random\\.seed|tf\\.random\\.set_seed)"
+    severity: "medium"
+
+  - name: "Hardcoded paths or credentials"
+    description: "Check for absolute file paths or API keys hardcoded into scripts (e.g., /home/user/, C:\\\\, api_key, token, secret)."
+    pattern: "(?i)(/home/|C:\\\\|api[_-]?key|token|secret|password)"
+    severity: "high"
+
+  - name: "Improper data preprocessing"
+    description: "Check that normalization or standardization is performed properly after train/test split. Ensure missing values are handled."
+    severity: "medium"
+
+  - name: "Model saving and loading"
+    description: "Ensure model weight files (.pt, .h5, .pkl, etc.) are saved securely and not accidentally committed to the repository."
+    pattern: "(\\.pt|\\.pth|\\.h5|\\.pkl)"
+    severity: "high"
+
+  - name: "Debug prints or unused code"
+    description: "Check that debug statements (print, pdb, etc.) or test code are removed before committing."
+    pattern: "(print\\(|pdb\\.set_trace|debugger;)"
+    severity: "low"
+
+  - name: "Performance optimization"
+    description: "Check that loops over tensors are vectorized where possible, and no deprecated or inefficient ML functions are used."
+    severity: "low"
+
+  - name: "Documentation and comments"
+    description: "Ensure important steps like preprocessing, model architecture, and hyperparameters are explained with comments or docstrings."
+    severity: "medium"
+
+  - name: "Experiment tracking"
+    description: "Check that metrics and training runs are logged properly (e.g., using TensorBoard, W&B, or CSV logs)."
+    severity: "low"
+
+  - name: "Model evaluation completeness"
+    description: "Ensure evaluation metrics like accuracy, confusion matrix, or classification reports are printed or logged after training."
+    severity: "medium"
