@@ -29,13 +29,13 @@ jobs:
 
       - name: Run Claude Notebook Review
         id: run_claude
-        uses: anthropics/claude-github-action@v1
+        uses: anthropics/claude-code-action@v1
         with:
           api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           model: claude-3-5-sonnet
           input: |
             You are a senior ML code reviewer.
-            Review this pull request's Jupyter notebooks for:
+            Review this pull request's Python file for:
             - ML correctness (data leakage, random seeds)
             - Security (no API keys, model weights committed)
             - Code quality (clean cells, no debug code)
