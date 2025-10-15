@@ -1,0 +1,27 @@
+# .github/claude-checklist.yml
+# Define rules Claude should validate for every PR
+checklist:
+  - id: files-location
+    title: "Changed files are only inside allowed folders"
+    description: "All modified files must be inside 'src', 'tests', or 'docs' except harmless meta files."
+    severity: "error"
+
+  - id: no-secrets
+    title: "No secrets or API keys committed"
+    description: "Detect obvious secrets (api_key, password, AWS_SECRET, private key blocks, etc.)."
+    severity: "error"
+
+  - id: lint-format
+    title: "Code follows lint and formatting rules"
+    description: "Run project linter/formatter; failing lint should be flagged."
+    severity: "warning"
+
+  - id: tests-present
+    title: "New features include tests"
+    description: "New code that adds behavior should include unit/integration tests."
+    severity: "warning"
+
+  - id: docs-updated
+    title: "README or docs updated if needed"
+    description: "If API signatures or configuration changed, documentation must be updated."
+    severity: "info"
