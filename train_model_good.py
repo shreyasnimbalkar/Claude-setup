@@ -63,3 +63,11 @@ for epoch in range(50):
 os.makedirs("artifacts", exist_ok=True)
 torch.save(model.state_dict(), "artifacts/model.pth")
 print("✅ Model training complete — saved in artifacts/")
+
+
+print("hello world")
+
+
+# TEST ONLY: fake API key to validate checklist detection — DO NOT USE IN PRODUCTION
+API_KEY = "sk_test_sfkajf334238754nfjsk983489356dgwhy4536"
+
