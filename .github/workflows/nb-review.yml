@@ -38,7 +38,7 @@ jobs:
       - name: Claude ML + Security + API Key Review
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.TESTING_TOKEN }}
           prompt: |
             You are a **senior ML engineer & security auditor**. Review the PR for:
