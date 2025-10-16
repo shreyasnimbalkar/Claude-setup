@@ -1,141 +1,92 @@
-name: Claude ML & Security Review
+name: Claude ML + Security + API Key Review
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
   pull-requests: write
-  id-token: write  # Required for OIDC authentication
-  issues: write
+  id-token: write
 
 jobs:
-  ml_security_review:
+  claude_review:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout Code
+      # Step 1: Checkout code
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Extract notebook or Python code
-      - name: Extract notebook and Python code
-        id: extract_code
+      # Step 2: Prepare code diff for review
+      - name: Extract code and diff
         run: |
           mkdir -p extracted
-          # Extract .ipynb files into .py
+          # Convert notebooks to .py scripts
           for nb in $(find . -name "*.ipynb"); do
-            echo "Extracting code from $nb..."
             jupyter nbconvert --to script "$nb" --output-dir extracted
           done
-          # Copy all .py files
+          # Copy all Python files
           find . -name "*.py" -exec cp {} extracted/ \;
-          # Combine for Claude
+          # Combine all code for Claude
           cat extracted/*.py > combined_code.py || echo "# no code" > combined_code.py
-
-      # Step 3: Get PR Diff
-      - name: Get PR diff
-        id: get_diff
-        run: |
+          # Create PR diff
           git fetch origin main || true
           git diff origin/main...HEAD > diff.txt || echo "# no diff" > diff.txt
 
-      # Step 4: Run Claude combined ML + Security Review
-      - name: Claude ML + Security Review
-        id: run_claude
+      # Step 3: Run Claude review
+      - name: Claude ML + Security + API Key Review
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.TESTING_TOKEN }}
           prompt: |
-            You are a **senior ML engineer and security auditor**.
-            Review the pull request’s Python / notebook code for:
-            - Machine Learning correctness and reproducibility
-            - Security vulnerabilities and code safety
-            - Code hygiene, credentials handling, and documentation
+            You are a **senior ML engineer & security auditor**. Review the PR for:
+
+            1. Machine Learning correctness (data leakage, random seeds, reproducibility)
+            2. Security vulnerabilities (RCE, unsafe deserialization, injection, data leaks)
+            3. Hardcoded secrets or API keys (ANYTHING that looks like 'api_key', 'token', 'password', 'sk_test_', 'sk_live_', etc.)
+            4. Code hygiene & reproducibility
+
+            Focus only on new code introduced in this PR.
 
             ---
-
-            ## 🔍 MACHINE LEARNING REVIEW CHECKLIST
-            1. No data leakage between train/test splits
-            2. Random seeds are set for reproducibility
-            3. No hardcoded file paths or credentials
-            4. Model save/load paths are parameterized
-            5. Data preprocessing is deterministic
-            6. No API keys or tokens committed
-            7. Training code follows clean ML best practices
-            8. Output files and logs handled securely
-            9. Sensitive data not printed or logged
-            10. Code is modular, clear, and documented
+            ## CODE TO REVIEW:
+            DIFF:
+            ```
+            $(cat diff.txt)
+            ```
+            FULL CODE:
+            ```
+            $(cat combined_code.py)
+            ```
 
             ---
+            ## OUTPUT FORMAT:
+            - For **each issue**, include:
+              - **File & Line**
+              - **Severity:** High / Medium
+              - **Category:** e.g., secret_exposure, pickle_injection, data_leakage
+              - **Description**
+              - **Exploit / Impact**
+              - **Fix Recommendation**
+            - Only report **High or Medium severity** and **confidence ≥ 8**.
+            - Explicitly flag any **hardcoded API keys or secrets** as HIGH severity.
 
-            ## 🧠 SECURITY REVIEW (STRICT)
-            ${{
-              join([
-                'You are a senior security engineer conducting a focused security review of the changes on this branch.',
-                'Focus ONLY on security implications introduced in this PR.',
-                'Analyze input validation, authentication, authorization, crypto, secrets, injection, and data exposure risks.'
-              ], '\n')
-            }}
-
-            ### Context:
-            FILES MODIFIED:
-            \n$(git diff --name-only origin/main...HEAD)\n
-
-            DIFF CONTENT:
-            \n$(cat diff.txt)\n
-
-            CODEBASE CONTENT:
-            \n$(cat combined_code.py)\n
-
-            ---
-
-            ## OUTPUT FORMAT (MANDATORY)
-            Respond only with a Markdown report structured as follows:
-
-            ### 🧩 Machine Learning Review
-            - ✅ PASS / ❌ FAIL with short explanations for each checklist item above.
-
-            ### 🔒 Security Review Findings
-            For each vulnerability, include:
-            - **File & line number**
-            - **Severity (High/Medium/Low)**
-            - **Category** (e.g., sql_injection, auth_bypass, secret_exposure)
-            - **Description**
-            - **Exploit Scenario**
-            - **Fix Recommendation**
-            - **Confidence Score (1-10)**
-
-            Only include **HIGH or MEDIUM** severity issues with **confidence ≥ 8**.
-            Skip theoretical or low-impact findings.
-
-            ### ✅ Summary
-            - Total Findings
-            - High Severity Count
-            - Medium Severity Count
-            - Confidence Summary
-
-            End with:
-            > ✅ All checks passed (if no findings)
-            or
-            > ❌ Found security/ML issues requiring attention.
-
-      # Step 5: Save Claude output
+      # Step 4: Save Claude output
       - name: Save Claude output
-        run: echo "${{ steps.run_claude.outputs.output }}" > claude_review_output.txt
+        run: echo "${{ steps.run_claude.outputs.output }}" > claude_output.txt
 
-      # Step 6: Post Claude Review Comment on PR
-      - name: Post Claude Review Comment
+      # Step 5: Post review comment to PR
+      - name: Post Claude comment
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.TESTING_TOKEN }}
           script: |
             const fs = require('fs');
-            const output = fs.readFileSync('claude_review_output.txt', 'utf8').trim();
-            if (!output || output.length === 0) {
-              console.log("⚠️ No output from Claude. Skipping comment.");
+            const output = fs.readFileSync('claude_output.txt', 'utf8').trim();
+            if (!output) {
+              console.log("⚠️ No output from Claude, skipping comment.");
               return;
             }
             await github.rest.issues.createComment({
@@ -145,12 +96,11 @@ jobs:
               body: output
             });
 
-      # Step 7 (Optional): Block Merge if Issues Found
-      - name: Block merge if Claude flags issues
+      # Step 6: Block merge if issues found
+      - name: Block merge if issues found
         run: |
-          if grep -q "❌" claude_review_output.txt || grep -q "HIGH" claude_review_output.txt; then
-            echo "Claude review failed — security or ML issues found. Blocking merge."
+          if grep -q "❌" claude_output.txt || grep -q "HIGH" claude_output.txt; then
+            echo "Claude review failed — issues detected. Blocking merge."
             exit 1
           else
-            echo "✅ No major issues detected. Merge allowed."
-          fi
+            echo "✅ No critical issues detected. Merge allowed."
