@@ -1,4 +1,4 @@
-name: Claude ML Code Review
+name: Claude ML & Security Review
 
 on:
   pull_request:
@@ -6,117 +6,151 @@ on:
 
 permissions:
   contents: read
-  id-token: write
   pull-requests: write
+  id-token: write  # Required for OIDC authentication
+  issues: write
 
 jobs:
-  ml_review:
+  ml_security_review:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout repository
+      # Step 1: Checkout Code
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      # Step 2: Get PR diff safely (with fallback)
+      # Step 2: Extract notebook or Python code
+      - name: Extract notebook and Python code
+        id: extract_code
+        run: |
+          mkdir -p extracted
+          # Extract .ipynb files into .py
+          for nb in $(find . -name "*.ipynb"); do
+            echo "Extracting code from $nb..."
+            jupyter nbconvert --to script "$nb" --output-dir extracted
+          done
+          # Copy all .py files
+          find . -name "*.py" -exec cp {} extracted/ \;
+          # Combine for Claude
+          cat extracted/*.py > combined_code.py || echo "# no code" > combined_code.py
+
+      # Step 3: Get PR Diff
       - name: Get PR diff
         id: get_diff
         run: |
-          git fetch origin main || echo "No main branch found"
-          if git rev-parse --verify origin/main >/dev/null 2>&1; then
-            git diff origin/main...HEAD -- '*.py' > diff.txt || echo "No diff found"
-          else
-            echo "⚠️ No main branch found, using fallback diff."
-            git diff HEAD~1 -- '*.py' > diff.txt || echo "No diff found"
-          fi
-          cat diff.txt || echo "⚠️ No differences to show."
+          git fetch origin main || true
+          git diff origin/main...HEAD > diff.txt || echo "# no diff" > diff.txt
 
-      # Step 3: Create built-in ML checklist
-      - name: Create Claude checklist
-        run: |
-          mkdir -p .github
-          cat <<'EOF' > .github/claude-checklist.yml
-          # Claude ML Review Checklist
-          correctness:
-            - "Uses train/test split correctly"
-            - "No data leakage"
-            - "Has random_state or seed set"
-          security:
-            - "No API keys or credentials in code"
-            - "No system or personal file paths exposed"
-          quality:
-            - "No print/debug statements"
-            - "Code is modular and commented"
-          reproducibility:
-            - "Random seeds fixed"
-            - "Dependencies clearly versioned"
-          best_practices:
-            - "Includes evaluation metrics"
-            - "Avoids overfitting via validation"
-            - "Uses proper model saving/loading"
-          EOF
-
-      # Step 4: Run Claude ML Review
-      - name: Run Claude ML Review
+      # Step 4: Run Claude combined ML + Security Review
+      - name: Claude ML + Security Review
         id: run_claude
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          model: claude-3-5-sonnet
           prompt: |
-            You are a senior ML engineer reviewing a Python ML codebase.
+            You are a **senior ML engineer and security auditor**.
+            Review the pull request’s Python / notebook code for:
+            - Machine Learning correctness and reproducibility
+            - Security vulnerabilities and code safety
+            - Code hygiene, credentials handling, and documentation
 
-            Review focus:
-            - ✅ Correctness (train/test split, data leakage)
-            - ⚙️ Security (API keys, unsafe code)
-            - 🧹 Quality (organization, reuse)
-            - 🧪 Reproducibility (seeds, environments)
-            - 📊 ML Best Practices (validation, metrics)
+            ---
 
-            Use the checklist below to grade the code:
-            $(cat .github/claude-checklist.yml)
+            ## 🔍 MACHINE LEARNING REVIEW CHECKLIST
+            1. No data leakage between train/test splits
+            2. Random seeds are set for reproducibility
+            3. No hardcoded file paths or credentials
+            4. Model save/load paths are parameterized
+            5. Data preprocessing is deterministic
+            6. No API keys or tokens committed
+            7. Training code follows clean ML best practices
+            8. Output files and logs handled securely
+            9. Sensitive data not printed or logged
+            10. Code is modular, clear, and documented
 
-            The code diff is below:
-            $(cat diff.txt)
+            ---
 
-            Please provide a **Markdown review** with:
-            - ✅ PASS / ❌ FAIL per item
-            - Short explanation for each failure
-            - A final summary (Good / Needs Fix / Risky)
+            ## 🧠 SECURITY REVIEW (STRICT)
+            ${{
+              join([
+                'You are a senior security engineer conducting a focused security review of the changes on this branch.',
+                'Focus ONLY on security implications introduced in this PR.',
+                'Analyze input validation, authentication, authorization, crypto, secrets, injection, and data exposure risks.'
+              ], '\n')
+            }}
+
+            ### Context:
+            FILES MODIFIED:
+            \n$(git diff --name-only origin/main...HEAD)\n
+
+            DIFF CONTENT:
+            \n$(cat diff.txt)\n
+
+            CODEBASE CONTENT:
+            \n$(cat combined_code.py)\n
+
+            ---
+
+            ## OUTPUT FORMAT (MANDATORY)
+            Respond only with a Markdown report structured as follows:
+
+            ### 🧩 Machine Learning Review
+            - ✅ PASS / ❌ FAIL with short explanations for each checklist item above.
+
+            ### 🔒 Security Review Findings
+            For each vulnerability, include:
+            - **File & line number**
+            - **Severity (High/Medium/Low)**
+            - **Category** (e.g., sql_injection, auth_bypass, secret_exposure)
+            - **Description**
+            - **Exploit Scenario**
+            - **Fix Recommendation**
+            - **Confidence Score (1-10)**
+
+            Only include **HIGH or MEDIUM** severity issues with **confidence ≥ 8**.
+            Skip theoretical or low-impact findings.
+
+            ### ✅ Summary
+            - Total Findings
+            - High Severity Count
+            - Medium Severity Count
+            - Confidence Summary
+
+            End with:
+            > ✅ All checks passed (if no findings)
+            or
+            > ❌ Found security/ML issues requiring attention.
 
       # Step 5: Save Claude output
       - name: Save Claude output
-        run: echo "${{ steps.run_claude.outputs.output }}" > claude_output.txt
+        run: echo "${{ steps.run_claude.outputs.output }}" > claude_review_output.txt
 
-      # Step 6: Post Claude Review Comment (only if not blank)
+      # Step 6: Post Claude Review Comment on PR
       - name: Post Claude Review Comment
-        if: ${{ steps.run_claude.outputs.output != '' }}
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const output = fs.readFileSync('claude_output.txt', 'utf8').trim();
-            if (!output) {
-              console.log("⚠️ Claude output is empty — skipping comment.");
-            } else {
-              github.rest.issues.createComment({
-                issue_number: context.payload.pull_request.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: output
-              });
-              console.log("✅ Posted Claude review comment successfully.");
+            const output = fs.readFileSync('claude_review_output.txt', 'utf8').trim();
+            if (!output || output.length === 0) {
+              console.log("⚠️ No output from Claude. Skipping comment.");
+              return;
             }
+            await github.rest.issues.createComment({
+              issue_number: context.payload.pull_request.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
 
-      # Step 7: Block merge if issues found
-      - name: Block merge if issues found
+      # Step 7 (Optional): Block Merge if Issues Found
+      - name: Block merge if Claude flags issues
         run: |
-          if grep -q "FAIL" claude_output.txt; then
-            echo "❌ Claude Review: Issues found. Please fix before merging."
+          if grep -q "❌" claude_review_output.txt || grep -q "HIGH" claude_review_output.txt; then
+            echo "Claude review failed — security or ML issues found. Blocking merge."
             exit 1
           else
-            echo "✅ Claude Review: All checks passed."
+            echo "✅ No major issues detected. Merge allowed."
           fi
