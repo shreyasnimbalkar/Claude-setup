@@ -66,3 +66,8 @@ print("✅ Model training complete — saved in artifacts/")
 
 
 print("hello world")
+
+
+# TEST ONLY: fake API key to validate checklist detection — DO NOT USE IN PRODUCTION
+API_KEY = "sk_test_sfkajf334238754nfjsk983489356dgwhy4536"
+
