@@ -18,7 +18,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # fetch full history
+          fetch-depth: 0
 
       # Step 2: Get PR diff safely (with fallback)
       - name: Get PR diff
@@ -26,14 +26,39 @@ jobs:
         run: |
           git fetch origin main || echo "No main branch found"
           if git rev-parse --verify origin/main >/dev/null 2>&1; then
-            git diff origin/main...HEAD -- 'train_model_good.py' > diff.txt || echo "No diff found"
+            git diff origin/main...HEAD -- '*.py' > diff.txt || echo "No diff found"
           else
-            echo "No main branch found, using fallback diff."
-            git diff HEAD~1 -- 'train_model_good.py' > diff.txt || echo "No diff found"
+            echo "⚠️ No main branch found, using fallback diff."
+            git diff HEAD~1 -- '*.py' > diff.txt || echo "No diff found"
           fi
-          cat diff.txt || echo "No differences to show."
+          cat diff.txt || echo "⚠️ No differences to show."
 
-      # Step 3: Run Claude ML Code Review
+      # Step 3: Create built-in ML checklist
+      - name: Create Claude checklist
+        run: |
+          mkdir -p .github
+          cat <<'EOF' > .github/claude-checklist.yml
+          # Claude ML Review Checklist
+          correctness:
+            - "Uses train/test split correctly"
+            - "No data leakage"
+            - "Has random_state or seed set"
+          security:
+            - "No API keys or credentials in code"
+            - "No system or personal file paths exposed"
+          quality:
+            - "No print/debug statements"
+            - "Code is modular and commented"
+          reproducibility:
+            - "Random seeds fixed"
+            - "Dependencies clearly versioned"
+          best_practices:
+            - "Includes evaluation metrics"
+            - "Avoids overfitting via validation"
+            - "Uses proper model saving/loading"
+          EOF
+
+      # Step 4: Run Claude ML Review
       - name: Run Claude ML Review
         id: run_claude
         uses: anthropics/claude-code-action@v1
@@ -42,42 +67,51 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           model: claude-3-5-sonnet
           prompt: |
-            You are a senior ML engineer reviewing a Python ML file (`train_model_good.py`).
-            Review for:
-            - ✅ Correctness (data splits, random seeds, model saving)
-            - ⚙️ Security (no API keys, no data leaks)
-            - 🧹 Code quality (no debug, well-structured)
-            - 🧪 Reproducibility (fixed seeds, dependency versions)
-            - 📊 ML practices (validation, overfitting check)
+            You are a senior ML engineer reviewing a Python ML codebase.
 
-            Use checklist if available:
-            $(cat .github/claude-checklist.yml 2>/dev/null || echo "No checklist found.")
+            Review focus:
+            - ✅ Correctness (train/test split, data leakage)
+            - ⚙️ Security (API keys, unsafe code)
+            - 🧹 Quality (organization, reuse)
+            - 🧪 Reproducibility (seeds, environments)
+            - 📊 ML Best Practices (validation, metrics)
 
-            Code diff:
+            Use the checklist below to grade the code:
+            $(cat .github/claude-checklist.yml)
+
+            The code diff is below:
             $(cat diff.txt)
 
-            Return a concise Markdown report with:
-            ✅ PASS / ❌ FAIL, explanation, and summary.
+            Please provide a **Markdown review** with:
+            - ✅ PASS / ❌ FAIL per item
+            - Short explanation for each failure
+            - A final summary (Good / Needs Fix / Risky)
 
-      # Step 4: Save Claude output
+      # Step 5: Save Claude output
       - name: Save Claude output
         run: echo "${{ steps.run_claude.outputs.output }}" > claude_output.txt
 
-      # Step 5: Post Claude Review Comment
+      # Step 6: Post Claude Review Comment (only if not blank)
       - name: Post Claude Review Comment
+        if: ${{ steps.run_claude.outputs.output != '' }}
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const output = fs.readFileSync('claude_output.txt', 'utf8');
-            github.rest.issues.createComment({
-              issue_number: context.payload.pull_request.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: output
-            });
+            const output = fs.readFileSync('claude_output.txt', 'utf8').trim();
+            if (!output) {
+              console.log("⚠️ Claude output is empty — skipping comment.");
+            } else {
+              github.rest.issues.createComment({
+                issue_number: context.payload.pull_request.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: output
+              });
+              console.log("✅ Posted Claude review comment successfully.");
+            }
 
-      # Step 6: Block merge if issues found
+      # Step 7: Block merge if issues found
       - name: Block merge if issues found
         run: |
           if grep -q "FAIL" claude_output.txt; then
