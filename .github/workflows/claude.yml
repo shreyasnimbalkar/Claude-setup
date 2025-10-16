@@ -3,12 +3,6 @@ name: Claude ML + Security + API Key Review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  issue_comment:
-    types: [created]
-  pull_request_review_comment:
-    types: [created]
-  pull_request_review:
-    types: [submitted]
 
 permissions:
   contents: write
@@ -21,13 +15,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout code
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      # Step 2: Extract code and prepare diff
       - name: Extract code and diff
         run: |
           mkdir -p extracted
@@ -39,7 +31,6 @@ jobs:
           git fetch origin main || true
           git diff origin/main...HEAD > diff.txt || echo "# no diff" > diff.txt
 
-      # Step 3: Run Claude review
       - name: Claude ML + Security + API Key Review
         id: claude_review
         uses: anthropics/claude-code-action@v1
@@ -47,29 +38,32 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.TESTING_TOKEN }}
           prompt: |
-            You are a **senior ML engineer & security auditor**.
-            Review the following PR for:
-            1. ML correctness (data leakage, reproducibility, random seeds)
+            You are a **senior ML engineer and security auditor**.
+
+            Review this PR for:
+            1. Machine Learning correctness (data leakage, reproducibility, random seeds)
             2. Security vulnerabilities (RCE, pickle, SQLi)
-            3. Hardcoded secrets or API keys (e.g., api_key, token, password, sk_test_, sk_live_)
-            4. Code quality & reproducibility
+            3. Hardcoded secrets, API keys, or tokens in the code (anything that looks like keys, tokens, or passwords)
+            4. General code hygiene and reproducibility
+
+            Flag ANY of the following patterns as HIGH severity:
+            - "api_key", "apikey", "api-key", "token", "secret", "password"
+            - Keys starting with: "sk_", "pk_", "AIza", "ghp_", "xoxb-", "ya29.", "eyJ"
+            - Anything that looks like a base64 string longer than 30 chars
+            - Any variable or string literal containing the above words
+
+            Output format:
+            - ❌ [HIGH] <file>:<line> – <reason>
+            - 🟡 [MEDIUM] <file>:<line> – <reason>
+            - ✅ Summary line at the end:
+              "✅ All checks passed: No high or medium severity issues detected."
 
             --- CODE DIFF ---
             $(cat diff.txt)
+
             --- FULL CODE ---
             $(cat combined_code.py)
 
-            Output format:
-            - File & Line
-            - Severity: High / Medium
-            - Category
-            - Description
-            - Fix Recommendation
-
-            If no issues found:
-            "✅ All checks passed: No high or medium severity issues detected."
-
-      # Step 4: Save Claude output
       - name: Save Claude output
         run: |
           output="${{ steps.claude_review.outputs.output }}"
@@ -79,7 +73,6 @@ jobs:
             echo "$output" > claude_output.txt
           fi
 
-      # Step 5: Post Claude review comment safely
       - name: Post Claude comment
         uses: actions/github-script@v7
         with:
@@ -88,7 +81,6 @@ jobs:
             const fs = require('fs');
             const output = fs.readFileSync('claude_output.txt', 'utf8').trim();
 
-            // Determine correct issue/PR number depending on trigger type
             const issueNumber =
               context.payload.pull_request?.number ||
               context.payload.issue?.number ||
@@ -105,7 +97,6 @@ jobs:
               });
             }
 
-      # Step 6: Block merge if high-severity issues found
       - name: Block merge if issues found
         run: |
           if grep -q "❌" claude_output.txt || grep -q "HIGH" claude_output.txt; then
