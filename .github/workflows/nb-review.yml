@@ -4,18 +4,23 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
 jobs:
   ml_review:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout repository (fetch all commits)
+      # Step 1: Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # ensure full history for diff
+          fetch-depth: 0  # fetch full history
 
-      # Step 2: Get PR diff (handles missing main branch safely)
+      # Step 2: Get PR diff safely (with fallback)
       - name: Get PR diff
         id: get_diff
         run: |
@@ -33,35 +38,32 @@ jobs:
         id: run_claude
         uses: anthropics/claude-code-action@v1
         with:
-          api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           model: claude-3-5-sonnet
-          input: |
-            You are a senior ML engineer reviewing code.
-            The file under review is a Python machine learning script named `train_model_good.py`.
+          prompt: |
+            You are a senior ML engineer reviewing a Python ML file (`train_model_good.py`).
+            Review for:
+            - ✅ Correctness (data splits, random seeds, model saving)
+            - ⚙️ Security (no API keys, no data leaks)
+            - 🧹 Code quality (no debug, well-structured)
+            - 🧪 Reproducibility (fixed seeds, dependency versions)
+            - 📊 ML practices (validation, overfitting check)
 
-            Review the code for:
-            - ✅ Correctness: data leakage, seed fixing, train-test split, model saving.
-            - ⚙️ Security: no API keys, no sensitive data paths, safe imports.
-            - 🧹 Code quality: clear structure, functions documented, no leftover print/debug.
-            - 🧪 Reproducibility: same random seeds, versioned dependencies.
-            - 📊 ML Best Practices: scaling, validation, overfitting detection.
-
-            Use this checklist if available:
-            $(cat .github/claude-checklist.yml 2>/dev/null || echo "No checklist file found.")
+            Use checklist if available:
+            $(cat .github/claude-checklist.yml 2>/dev/null || echo "No checklist found.")
 
             Code diff:
             $(cat diff.txt)
 
-            Return a **Markdown review report** containing:
-            - ✅ PASS / ❌ FAIL for each check.
-            - Short explanation for each issue.
-            - A final summary section with an overall rating (Good / Needs Improvement / Risky).
+            Return a concise Markdown report with:
+            ✅ PASS / ❌ FAIL, explanation, and summary.
 
       # Step 4: Save Claude output
       - name: Save Claude output
         run: echo "${{ steps.run_claude.outputs.output }}" > claude_output.txt
 
-      # Step 5: Post Claude Review as PR comment
+      # Step 5: Post Claude Review Comment
       - name: Post Claude Review Comment
         uses: actions/github-script@v7
         with:
